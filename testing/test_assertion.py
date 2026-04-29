@@ -2240,3 +2240,69 @@ def test_dict_extra_items_preserve_insertion_order(pytester: Pytester) -> None:
             "test_order.py:*: AssertionError",
         ]
     )
+
+
+class TestStructuredDiffPath:
+    """Test cases for structured diff path display."""
+
+    def test_simple_dict_diff_path(self) -> None:
+        """Test diff path for simple dict comparison."""
+        expected = {"name": "Alice", "age": 30, "city": "Beijing"}
+        actual = {"name": "Alice", "age": 25, "city": "Beijing"}
+        result = callequal(expected, actual)
+        
+        assert result is not None
+        assert any("差异路径:" in line for line in result)
+        assert any('["age"]' in line for line in result)
+        assert any("期望值: 30" in line for line in result)
+        assert any("实际值: 25" in line for line in result)
+
+    def test_nested_dict_diff_path(self) -> None:
+        """Test diff path for nested dict comparison."""
+        expected = {
+            "user": {
+                "name": "Alice",
+                "profile": {
+                    "age": 30,
+                    "email": "alice@example.com"
+                }
+            }
+        }
+        actual = {
+            "user": {
+                "name": "Alice",
+                "profile": {
+                    "age": 25,
+                    "email": "alice@example.com"
+                }
+            }
+        }
+        result = callequal(expected, actual)
+        
+        assert result is not None
+        assert any("差异路径:" in line for line in result)
+        assert any('["user"]["profile"]["age"]' in line for line in result)
+        assert any("期望值: 30" in line for line in result)
+        assert any("实际值: 25" in line for line in result)
+
+    def test_mixed_list_dict_diff_path(self) -> None:
+        """Test diff path for mixed list and dict comparison."""
+        expected = {
+            "users": [
+                {"name": "Alice", "age": 30},
+                {"name": "Bob", "age": 25}
+            ]
+        }
+        actual = {
+            "users": [
+                {"name": "Alice", "age": 30},
+                {"name": "Bob", "age": 28}
+            ]
+        }
+        result = callequal(expected, actual)
+        
+        assert result is not None
+        assert any("差异路径:" in line for line in result)
+        assert any('["users"][1]["age"]' in line for line in result)
+        assert any("期望值: 25" in line for line in result)
+        assert any("实际值: 28" in line for line in result)
