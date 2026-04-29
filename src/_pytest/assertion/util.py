@@ -38,6 +38,87 @@ _assertion_pass: Callable[[int, str, str], None] | None = None
 _config: Config | None = None
 
 
+def _find_first_diff_path(
+    left: Any, right: Any, path: list[str] | None = None, depth: int = 0
+) -> tuple[list[str] | None, Any, Any] | None:
+    """Find the path to the first differing value between two objects.
+    
+    Returns a tuple of (path, expected_value, actual_value) if a difference is found,
+    otherwise returns None.
+    
+    Note: left is expected, right is actual when called from assertrepr_compare.
+    """
+    if path is None:
+        path = []
+    
+    # Limit recursion depth to 10
+    if depth > 10:
+        return None
+    
+    # If types are different, return current path
+    if type(left) is not type(right):
+        return (path, left, right)
+    
+    # Compare dicts
+    if isdict(left):
+        set_left = set(left)
+        set_right = set(right)
+        
+        # Check for extra keys
+        extra_left = set_left - set_right
+        if extra_left:
+            key = next(iter(extra_left))
+            return (path + [f'["{key}"]'], left[key], None)
+        
+        extra_right = set_right - set_left
+        if extra_right:
+            key = next(iter(extra_right))
+            return (path + [f'["{key}"]'], None, right[key])
+        
+        # Check common keys for differing values
+        common = set_left.intersection(set_right)
+        for key in sorted(common):
+            if left[key] != right[key]:
+                # Recursively check nested structures
+                nested_result = _find_first_diff_path(
+                    left[key], right[key], path + [f'["{key}"]'], depth + 1
+                )
+                if nested_result:
+                    return nested_result
+                # If nested check didn't find a path (e.g., depth limit), return current
+                return (path + [f'["{key}"]'], left[key], right[key])
+    
+    # Compare sequences (lists, tuples, etc. but not strings)
+    elif issequence(left):
+        len_left = len(left)
+        len_right = len(right)
+        
+        # Check elements up to min length
+        for i in range(min(len_left, len_right)):
+            if left[i] != right[i]:
+                # Recursively check nested structures
+                nested_result = _find_first_diff_path(
+                    left[i], right[i], path + [f"[{i}]"], depth + 1
+                )
+                if nested_result:
+                    return nested_result
+                # If nested check didn't find a path, return current
+                return (path + [f"[{i}]"], left[i], right[i])
+        
+        # Check for extra elements
+        if len_left != len_right:
+            if len_left > len_right:
+                return (path + [f"[{len_right}]"], left[len_right], None)
+            else:
+                return (path + [f"[{len_left}]"], None, right[len_left])
+    
+    # For other types, just check equality
+    elif left != right:
+        return (path, left, right)
+    
+    return None
+
+
 class _HighlightFunc(Protocol):
     def __call__(self, source: str, lexer: Literal["diff", "python"] = "python") -> str:
         """Apply highlighting to the given source."""
@@ -239,6 +320,29 @@ def assertrepr_compare(
 
     if not explanation:
         return None
+
+    # Add structured diff path information for == comparisons with dict/list
+    if op == "==" and (isdict(left) or issequence(left)) and (isdict(right) or issequence(right)):
+        diff_result = _find_first_diff_path(left, right)
+        if diff_result:
+            path, expected, actual = diff_result
+            path_str = "".join(path) if path else ""
+            
+            # Format the values for display
+            def format_value(val: Any) -> str:
+                if val is None:
+                    return "(不存在)"
+                try:
+                    return saferepr(val, maxsize=50)
+                except Exception:
+                    return repr(val)
+            
+            expected_str = format_value(expected)
+            actual_str = format_value(actual)
+            
+            # Add the diff path line to explanation
+            diff_path_line = f"差异路径: {path_str}  期望值: {expected_str}  实际值: {actual_str}"
+            explanation.append(diff_path_line)
 
     if explanation[0] != "":
         explanation = ["", *explanation]
